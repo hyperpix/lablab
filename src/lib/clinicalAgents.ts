@@ -63,6 +63,8 @@ const SCRIBE_PROMPT = `
 You are a specialized Dental Scribe Agent.
 Your job is to parse unstructured clinical transcripts/audio dictations and return a strictly structured JSON containing the 7 clinical sections.
 
+CRITICAL INSTRUCTION: To prevent hallucinations, ONLY include information explicitly stated in the transcript. If a section (such as medical history, other conditions, drug history/allergies, or investigation notes) is not mentioned or addressed in the transcript, set its value strictly to "None reported" or "Not mentioned". DO NOT assume, invent, or fill in any details not present in the transcript.
+
 Output Format (strict JSON only):
 {
   "chief_complaint": "Extracted chief complaint...",
@@ -595,7 +597,20 @@ export async function runClinicalWorkflow(
   }
 
   // 1. Scribe Agent
-  if (onStep) onStep("ScribeAgent: Parsing transcript into diagnostics...", 20);
+  const scribeApiKey = cleanKey(keys.bandScribe || bandKey);
+
+  if (roomId) {
+    if (onStep) onStep("ScribeAgent: Posting raw transcript to Band.ai...", 15);
+    await logToBand(
+      roomId,
+      scribeApiKey,
+      patientId || "unknown",
+      "Raw Transcript",
+      { transcript }
+    );
+  }
+
+  if (onStep) onStep("ScribeAgent: Parsing transcript into diagnostics...", 25);
   const scribeOutputRaw = await callFeatherlessQueued(
     SCRIBE_PROMPT,
     transcript,
@@ -606,7 +621,6 @@ export async function runClinicalWorkflow(
 
   if (roomId) {
     if (onStep) onStep("ScribeAgent: Sending diagnostics to Band.ai...", 35);
-    const scribeApiKey = cleanKey(keys.bandScribe || bandKey);
     await logToBand(
       roomId,
       scribeApiKey,
