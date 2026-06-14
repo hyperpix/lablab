@@ -497,6 +497,12 @@ export async function runClinicalWorkflow(
 
   const isAgent = keys.band?.startsWith("band_a_");
 
+  const resolvedUuids = {
+    scribe: uuids.scribe || "54b43fbc-65ee-4136-ab47-a85a11800233",
+    planner: uuids.planner || "83095480-d94a-4085-a636-3d7e8c969500",
+    pharmacologist: uuids.pharmacologist || "279ce17c-8983-4ca2-9f6b-2935d252135d"
+  };
+
   // Try to create/find the chat room on Band.ai first
   if (keys.band) {
     if (onStep) onStep("Connecting to Band.ai chat room...", 10);
@@ -536,10 +542,10 @@ export async function runClinicalWorkflow(
           ? `${BAND_API}/agent/chats/${roomId}/participants`
           : `${BAND_API}/me/chats/${roomId}/participants`;
 
-        for (const [role, agentUuid] of Object.entries(uuids)) {
+        for (const [role, agentUuid] of Object.entries(resolvedUuids)) {
           if (!agentUuid) continue;
           try {
-            await fetch(addParticipantUrl, {
+            const addRes = await fetch(addParticipantUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -550,6 +556,9 @@ export async function runClinicalWorkflow(
                 participant_id: agentUuid
               }),
             });
+            if (!addRes.ok) {
+              console.warn(`Failed to add agent ${role} (${agentUuid}) to chat room:`, await addRes.text());
+            }
           } catch (addErr) {
             console.warn(`Failed to add agent ${role} (${agentUuid}) to chat room:`, addErr);
           }
@@ -582,7 +591,7 @@ export async function runClinicalWorkflow(
         ? {
             message: {
               content: `@${scribeHandle} process this clinical input:\n${transcript}`,
-              mentions: [{ id: uuids.scribe }]
+              mentions: resolvedUuids.scribe ? [{ id: resolvedUuids.scribe }] : []
             }
           }
         : { content: `@${scribeHandle} process this clinical input:\n${transcript}` };
@@ -666,7 +675,7 @@ export async function runClinicalWorkflow(
   await logToBand(
     "ScribeAgent",
     scribeHandle,
-    uuids.scribe,
+    resolvedUuids.scribe,
     keys.band || "",
     patientId || "unknown",
     { transcript },
@@ -687,7 +696,7 @@ export async function runClinicalWorkflow(
   await logToBand(
     "PlannerAgent",
     plannerHandle,
-    uuids.planner,
+    resolvedUuids.planner,
     keys.band || "",
     patientId || "unknown",
     diagnostics,
@@ -709,7 +718,7 @@ export async function runClinicalWorkflow(
   await logToBand(
     "PharmacologistAgent",
     pharmacologistHandle,
-    uuids.pharmacologist,
+    resolvedUuids.pharmacologist,
     keys.band || "",
     patientId || "unknown",
     pharmaInput,
