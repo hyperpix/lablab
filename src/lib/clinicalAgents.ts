@@ -568,8 +568,7 @@ export async function runClinicalWorkflow(
                 "X-API-Key": bandKey,
               },
               body: JSON.stringify({
-                participant: { participant_id: agentUuid },
-                participant_id: agentUuid
+                participant: { participant_id: agentUuid }
               }),
             });
             if (!addRes.ok) {
