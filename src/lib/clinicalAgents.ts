@@ -118,6 +118,7 @@ For each drug, use the FDA data to determine:
 - Frequency based on standard dental practice
 - Duration based on the condition being treated
 - Any relevant warnings (contraindications, interactions)
+- The clinical reason for prescribing
 
 Cross-reference the patient's drug history, allergies, and medical profile.
 
@@ -129,7 +130,8 @@ Output Format (strict JSON only):
       "dosage": "dosage strength",
       "frequency": "how often",
       "duration": "how long",
-      "warning": "any warnings or empty string"
+      "warning": "any warnings or empty string",
+      "reason": "clinical reason for prescribing"
     }
   ]
 }
