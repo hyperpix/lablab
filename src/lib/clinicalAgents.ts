@@ -420,6 +420,63 @@ async function callAgentViaBand(
 }
 
 /**
+ * Poll for an agent's response in the chat room.
+ */
+async function waitForAgentResponse(
+  roomId: string,
+  agentHandle: string,
+  bandApiKey: string,
+  startTime: number,
+  onStep?: (label: string, value: number) => void,
+  progressVal: number = 0,
+): Promise<string> {
+  const isAgent = bandApiKey.startsWith("band_a_");
+  const timeoutMs = 90000; // 90 second timeout for remote agent execution
+  let pollAttempt = 0;
+
+  const pollUrl = isAgent
+    ? `${BAND_API}/agent/chats/${roomId}/messages`
+    : `${BAND_API}/me/chats/${roomId}/messages`;
+
+  while (Date.now() - startTime < timeoutMs) {
+    pollAttempt++;
+    if (onStep) {
+      onStep(`Waiting for @${agentHandle} response from Band.ai (attempt ${pollAttempt})...`, progressVal);
+    }
+    
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    const res = await fetch(pollUrl, {
+      headers: { "X-API-Key": bandApiKey },
+    });
+    if (!res.ok) continue;
+
+    const json = await res.json();
+    const messages = isAgent
+      ? (Array.isArray(json.data) ? json.data : (json.data?.messages || json.messages || []))
+      : (json.data?.messages || json.messages || []);
+
+    // Search for a message containing valid JSON that was posted after our starting time.
+    for (const msg of messages) {
+      const msgTime = new Date(msg.created_at || msg.inserted_at).getTime();
+      if (msgTime > startTime) {
+        const content = msg.content || "";
+        const cleaned = content.replace(/@\S+/g, "").trim();
+        if (cleaned.includes("{") && cleaned.includes("}")) {
+          try {
+            cleanAndParseJSON(cleaned);
+            return cleaned; // Successfully parsed valid JSON response!
+          } catch (e) {
+            // Not a complete or valid JSON response yet, keep polling
+          }
+        }
+      }
+    }
+  }
+  throw new Error(`Timeout waiting for @${agentHandle} response on Band.ai. Make sure your background agent-runner is running.`);
+}
+
+/**
  * Run the 3-agent clinical workflow.
  *
  * @param transcript - Raw clinical transcript/dictation text
@@ -511,41 +568,71 @@ export async function runClinicalWorkflow(
   // If Band room is successfully found, execute remote Band mode
   if (keys.band && roomId) {
     try {
-      // 1. Scribe Agent via Band.ai
+      const startTime = Date.now() - 5000; // 5s buffer
+
+      // 1. Scribe Agent via Band.ai - Trigger by sending initial message
       if (onStep) onStep("ScribeAgent: Sending dictation to Band.ai...", 15);
-      const scribeOutputRaw = await callAgentViaBand(
+      
+      const isAgent = keys.band.startsWith("band_a_");
+      const postUrl = isAgent
+        ? `${BAND_API}/agent/chats/${roomId}/messages`
+        : `${BAND_API}/me/chats/${roomId}/messages`;
+      
+      const body = isAgent
+        ? {
+            message: {
+              content: `@${scribeHandle} process this clinical input:\n${transcript}`,
+              mentions: [{ id: uuids.scribe }]
+            }
+          }
+        : { content: `@${scribeHandle} process this clinical input:\n${transcript}` };
+
+      const postRes = await fetch(postUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": keys.band,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!postRes.ok) {
+        const errorText = await postRes.text();
+        throw new Error(`Failed to post initial message: ${errorText}`);
+      }
+
+      // 2. Poll for ScribeAgent's response (diagnostics)
+      const scribeOutputRaw = await waitForAgentResponse(
         roomId,
         scribeHandle,
-        uuids.scribe,
-        transcript,
         keys.band,
+        startTime,
         onStep,
         20
       );
       const diagnostics: DiagnosticsData = cleanAndParseJSON(scribeOutputRaw);
 
-      // 2. Planner Agent via Band.ai
-      if (onStep) onStep("PlannerAgent: Submitting diagnostics to Band.ai...", 40);
-      const plannerOutputRaw = await callAgentViaBand(
+      // 3. Poll for PlannerAgent's response (treatment plan)
+      // Since ScribeAgent mentioned PlannerAgent, we just wait for PlannerAgent's output.
+      if (onStep) onStep("PlannerAgent: Waiting for treatments recommendation on Band.ai...", 40);
+      const plannerOutputRaw = await waitForAgentResponse(
         roomId,
         plannerHandle,
-        uuids.planner,
-        JSON.stringify(diagnostics),
         keys.band,
+        startTime,
         onStep,
         45
       );
       const plannerResult = cleanAndParseJSON(plannerOutputRaw);
 
-      // 3. Pharmacologist Agent via Band.ai
-      if (onStep) onStep("PharmacologistAgent: Sending treatment plan to Band.ai...", 60);
-      const pharmaInput = { diagnostics, treatments: plannerResult.treatments };
-      const pharmaOutputRaw = await callAgentViaBand(
+      // 4. Poll for PharmacologistAgent's response (prescriptions)
+      // Since PlannerAgent mentioned PharmacologistAgent, we just wait for PharmacologistAgent's output.
+      if (onStep) onStep("PharmacologistAgent: Waiting for prescriptions recommendation on Band.ai...", 60);
+      const pharmaOutputRaw = await waitForAgentResponse(
         roomId,
         pharmacologistHandle,
-        uuids.pharmacologist,
-        JSON.stringify(pharmaInput),
         keys.band,
+        startTime,
         onStep,
         65
       );

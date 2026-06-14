@@ -310,6 +310,29 @@ async function sendMessage(
 
 // ── Agent Execution ────────────────────────────────────────────
 
+const SCRIBE_UUID = process.env.VITE_SCRIBE_UUID || "54b43fbc-65ee-4136-ab47-a85a11800233";
+const PLANNER_UUID = process.env.VITE_PLANNER_UUID || "83095480-d94a-4085-a636-3d7e8c969500";
+const PHARMA_UUID = process.env.VITE_PHARMACOLOGIST_UUID || "279ce17c-8983-4ca2-9f6b-2935d252135d";
+
+const SCRIBE_HANDLE = "meetnorthern/scribeagent";
+const PLANNER_HANDLE = "meetnorthern/planneragent";
+const PHARMA_HANDLE = "meetnorthern/pharmacologistagent";
+
+function extractJsonString(text: string): string {
+  const jsonBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+  const match = text.match(jsonBlockRegex);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  
+  const startIdx = text.indexOf('{');
+  const endIdx = text.lastIndexOf('}');
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    return text.substring(startIdx, endIdx + 1).trim();
+  }
+  return text;
+}
+
 async function processMessage(
   message: any,
   agent: AgentConfig,
@@ -332,7 +355,10 @@ async function processMessage(
   await markProcessing(messageId, agent.apiKey);
 
   try {
-    const input = content?.replace(/@\S+/g, "").trim() || "";
+    let input = content?.replace(/@\S+/g, "").trim() || "";
+    if (agent.name === "PlannerAgent" || agent.name === "PharmacologistAgent") {
+      input = extractJsonString(input);
+    }
 
     // Step 1: Call Featherless to get drug names (for all agents)
     const result = await callFeatherlessQueued(
@@ -393,13 +419,34 @@ async function processMessage(
       }
     }
 
-    // Post the result back to the chat room
+    // Post the result back to the chat room, mentioning the next agent in the pipeline
+    let targetMentionId: string | undefined = undefined;
+    let targetMentionHandle: string | undefined = undefined;
+    let formattedResult = finalResult;
+
+    if (agent.name === "ScribeAgent") {
+      targetMentionId = PLANNER_UUID;
+      targetMentionHandle = PLANNER_HANDLE;
+      formattedResult = `Diagnostics complete. Please recommend treatments:\n\`\`\`json\n${finalResult}\n\`\`\``;
+    } else if (agent.name === "PlannerAgent") {
+      targetMentionId = PHARMA_UUID;
+      targetMentionHandle = PHARMA_HANDLE;
+      formattedResult = `Treatment plan ready. Please prescribe medications:\n\`\`\`json\n${finalResult}\n\`\`\``;
+    } else if (agent.name === "PharmacologistAgent") {
+      targetMentionId = SCRIBE_UUID;
+      targetMentionHandle = SCRIBE_HANDLE;
+      formattedResult = `Prescriptions ready (sourced from FDA API):\n\`\`\`json\n${finalResult}\n\`\`\``;
+    } else {
+      targetMentionId = message.sender_id;
+      targetMentionHandle = message.sender_name;
+    }
+
     await sendMessage(
       chatId,
-      finalResult,
+      formattedResult,
       agent.apiKey,
-      message.sender_id,
-      message.sender_name,
+      targetMentionId,
+      targetMentionHandle,
     );
 
     await markProcessed(messageId, agent.apiKey);

@@ -244,9 +244,9 @@ async function completeScribing() {
         pharmacologist: import.meta.env.VITE_PHARMACOLOGIST_UUID || ''
       },
       {
-        scribe: 'ScribeAgent',
-        planner: 'PlannerAgent',
-        pharmacologist: 'PharmacologistAgent'
+        scribe: 'meetnorthern/scribeagent',
+        planner: 'meetnorthern/planneragent',
+        pharmacologist: 'meetnorthern/pharmacologistagent'
       },
       targetPatientId,
       (label, value) => {
