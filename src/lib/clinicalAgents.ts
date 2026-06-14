@@ -308,7 +308,7 @@ async function logToBand(
         }
       : { content };
 
-    await fetch(msgUrl, {
+    const res = await fetch(msgUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -316,6 +316,11 @@ async function logToBand(
       },
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      console.warn(`Band.ai message post failed for ${contentPrefix}: status ${res.status}`, await res.text());
+    } else {
+      console.log(`Band.ai message post succeeded for ${contentPrefix}`);
+    }
   } catch (err) {
     console.warn("Band.ai logging failed:", err);
   }
