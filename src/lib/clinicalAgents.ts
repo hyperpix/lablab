@@ -13,6 +13,11 @@
 
 import OpenAI from "openai";
 
+function cleanKey(key?: string): string {
+  if (!key) return "";
+  return key.replace(/^['"]|['"]$/g, "").trim();
+}
+
 export interface DiagnosticsData {
   chief_complaint: string;
   medical_history_notes: string;
@@ -495,7 +500,9 @@ export async function runClinicalWorkflow(
 ): Promise<ClinicalWorkflowResult> {
   let roomId = "";
 
-  const isAgent = keys.band?.startsWith("band_a_");
+  const bandKey = cleanKey(keys.band);
+  const featherlessKey = cleanKey(keys.featherless);
+  const isAgent = bandKey.startsWith("band_a_");
 
   const resolvedUuids = {
     scribe: uuids.scribe || "54b43fbc-65ee-4136-ab47-a85a11800233",
@@ -504,14 +511,17 @@ export async function runClinicalWorkflow(
   };
 
   // Try to create/find the chat room on Band.ai first
-  if (keys.band) {
+  if (bandKey) {
     if (onStep) onStep("Connecting to Band.ai chat room...", 10);
     try {
       const roomName = `Dental-Scribe-${patientId || "unknown"}-${Date.now().toString(36)}`;
       const chatsUrl = isAgent ? `${BAND_API}/agent/chats` : `${BAND_API}/me/chats`;
       const roomRes = await fetch(chatsUrl, {
-        headers: { "X-API-Key": keys.band },
+        headers: { "X-API-Key": bandKey },
       });
+      if (!roomRes.ok) {
+        throw new Error(`Failed to list rooms (${roomRes.status}): ${await roomRes.text()}`);
+      }
       const rooms = await roomRes.json();
       const chatList = isAgent ? (rooms.data || []) : (rooms.data?.chats || rooms.chats || []);
       let room = chatList.find((c: any) => (c.title || c.name || "").toLowerCase() === roomName.toLowerCase());
@@ -526,10 +536,13 @@ export async function runClinicalWorkflow(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-API-Key": keys.band,
+            "X-API-Key": bandKey,
           },
           body: JSON.stringify(body),
         });
+        if (!createRes.ok) {
+          throw new Error(`Failed to create room (${createRes.status}): ${await createRes.text()}`);
+        }
         const created = await createRes.json();
         roomId = created.data?.id || created.id;
       } else {
@@ -549,7 +562,7 @@ export async function runClinicalWorkflow(
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "X-API-Key": keys.band,
+                "X-API-Key": bandKey,
               },
               body: JSON.stringify({
                 participant: { participant_id: agentUuid },
@@ -564,8 +577,10 @@ export async function runClinicalWorkflow(
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Failed to find or create Band.ai room:", err);
+      if (onStep) onStep(`Failed to connect to Band: ${err.message || err}`, 10);
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
   }
 
@@ -575,14 +590,13 @@ export async function runClinicalWorkflow(
   const pharmacologistHandle = handles?.pharmacologist || "PharmacologistAgent";
 
   // If Band room is successfully found, execute remote Band mode
-  if (keys.band && roomId) {
+  if (bandKey && roomId) {
     try {
       const startTime = Date.now() - 5000; // 5s buffer
 
       // 1. Scribe Agent via Band.ai - Trigger by sending initial message
       if (onStep) onStep("ScribeAgent: Sending dictation to Band.ai...", 15);
       
-      const isAgent = keys.band.startsWith("band_a_");
       const postUrl = isAgent
         ? `${BAND_API}/agent/chats/${roomId}/messages`
         : `${BAND_API}/me/chats/${roomId}/messages`;
@@ -600,7 +614,7 @@ export async function runClinicalWorkflow(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-Key": keys.band,
+          "X-API-Key": bandKey,
         },
         body: JSON.stringify(body),
       });
@@ -614,7 +628,7 @@ export async function runClinicalWorkflow(
       const scribeOutputRaw = await waitForAgentResponse(
         roomId,
         scribeHandle,
-        keys.band,
+        bandKey,
         startTime,
         onStep,
         20
@@ -627,7 +641,7 @@ export async function runClinicalWorkflow(
       const plannerOutputRaw = await waitForAgentResponse(
         roomId,
         plannerHandle,
-        keys.band,
+        bandKey,
         startTime,
         onStep,
         45
@@ -640,7 +654,7 @@ export async function runClinicalWorkflow(
       const pharmaOutputRaw = await waitForAgentResponse(
         roomId,
         pharmacologistHandle,
-        keys.band,
+        bandKey,
         startTime,
         onStep,
         65
@@ -654,9 +668,10 @@ export async function runClinicalWorkflow(
         prescriptions: pharmaResult.prescriptions || [],
         teeth_marks: plannerResult.teeth_marks || [],
       };
-    } catch (bandError) {
+    } catch (bandError: any) {
       console.warn("Band.ai remote workflow failed or timed out. Falling back to direct mode...", bandError);
-      if (onStep) onStep("Band.ai remote error. Falling back to Direct mode...", 12);
+      if (onStep) onStep(`Band.ai error: ${bandError.message || bandError}. Falling back to Direct...`, 12);
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
   }
 
@@ -666,7 +681,7 @@ export async function runClinicalWorkflow(
   const scribeOutputRaw = await callFeatherlessQueued(
     SCRIBE_PROMPT,
     transcript,
-    keys.featherless,
+    featherlessKey,
     SCRIBE_MODEL,
   );
   const diagnostics: DiagnosticsData = cleanAndParseJSON(scribeOutputRaw);
@@ -676,7 +691,7 @@ export async function runClinicalWorkflow(
     "ScribeAgent",
     scribeHandle,
     resolvedUuids.scribe,
-    keys.band || "",
+    bandKey || "",
     patientId || "unknown",
     { transcript },
     diagnostics,
@@ -687,7 +702,7 @@ export async function runClinicalWorkflow(
   const plannerOutputRaw = await callFeatherlessQueued(
     PLANNER_PROMPT,
     JSON.stringify(diagnostics),
-    keys.featherless,
+    featherlessKey,
     PLANNER_MODEL,
   );
   const plannerResult = cleanAndParseJSON(plannerOutputRaw);
@@ -697,7 +712,7 @@ export async function runClinicalWorkflow(
     "PlannerAgent",
     plannerHandle,
     resolvedUuids.planner,
-    keys.band || "",
+    bandKey || "",
     patientId || "unknown",
     diagnostics,
     plannerResult,
@@ -709,7 +724,7 @@ export async function runClinicalWorkflow(
   const pharmaOutputRaw = await callFeatherlessQueued(
     PHARMACOLOGIST_PROMPT,
     JSON.stringify(pharmaInput),
-    keys.featherless,
+    featherlessKey,
     PHARMACOLOGIST_MODEL,
   );
   const pharmaResult = cleanAndParseJSON(pharmaOutputRaw);
@@ -719,7 +734,7 @@ export async function runClinicalWorkflow(
     "PharmacologistAgent",
     pharmacologistHandle,
     resolvedUuids.pharmacologist,
-    keys.band || "",
+    bandKey || "",
     patientId || "unknown",
     pharmaInput,
     pharmaResult,
