@@ -98,19 +98,36 @@ Output Format (strict JSON only):
 
 const PHARMACOLOGIST_PROMPT = `
 You are a Dental Pharmacologist Agent.
-Recommend safe prescriptions (analgesics, antibiotics, mouthwashes) matching the diagnostics and treatment plan.
-Cross-reference the patient's drug history, allergies, and general medical profile to ensure safety.
+Based on the diagnostics and treatment plan, identify what medications are needed.
+Consider the patient's allergies, medical history, and current medications.
+
+Output ONLY a JSON object with an array of drug names (generic names preferred):
+{
+  "recommended_drugs": ["Ibuprofen", "Amoxicillin", "Chlorhexidine gluconate"]
+}
+`;
+
+const PHARMA_FINAL_PROMPT = `
+You are a Dental Pharmacologist Agent. You are given FDA-sourced drug data for medications to prescribe. Using the real drug information (brand names, active ingredients, dosage forms, routes, marketing status), generate the final prescription details.
+
+For each drug, use the FDA data to determine:
+- The proper name (brand or generic)
+- Appropriate dosage based on the dosage form and route
+- Frequency based on standard dental practice
+- Duration based on the condition being treated
+- Any relevant warnings (contraindications, interactions)
+
+Cross-reference the patient's drug history, allergies, and medical profile.
 
 Output Format (strict JSON only):
 {
   "prescriptions": [
-    { 
-      "name": "Amoxicillin 500mg", 
-      "dosage": "1 capsule", 
-      "frequency": "Every 8 hours", 
-      "duration": "5 days", 
-      "warning": "",
-      "reason": "For prophylaxis / infection control post-extraction"
+    {
+      "name": "Drug Name",
+      "dosage": "dosage strength",
+      "frequency": "how often",
+      "duration": "how long",
+      "warning": "any warnings or empty string"
     }
   ]
 }
@@ -223,81 +240,68 @@ function cleanAndParseJSON(text: string): any {
 const BAND_API = "/api/band";
 
 /**
- * Log an agent execution to Band.ai via the Human API.
- * Creates a chat room message that the agent-runner can pick up.
+ * Look up a drug on the FDA Drugs@FDA API and return structured info.
  */
-async function logToBand(
-  agentName: string,
-  agentHandle: string,
-  agentId: string | undefined,
-  bandApiKey: string,
-  patientId: string,
-  input: any,
-  output: any,
-) {
-  if (!bandApiKey || !agentHandle) return;
-  const isAgent = bandApiKey.startsWith("band_a_");
+async function lookupDrugOnFDA(drugName: string): Promise<any[]> {
+  const encoded = encodeURIComponent(drugName);
+  const url = `https://api.fda.gov/drug/drugsfda.json?search=products.brand_name:%22${encoded}%22+OR+products.active_ingredients.name:%22${encoded}%22&limit=3`;
   try {
-    const roomName = `dental-scribe-${patientId}`;
-
-    // Create or find a chat room for this patient
-    const chatsUrl = isAgent ? `${BAND_API}/agent/chats` : `${BAND_API}/me/chats`;
-    const roomRes = await fetch(chatsUrl, {
-      headers: { "X-API-Key": bandApiKey },
-    });
-    const rooms = await roomRes.json();
-    const chatList = isAgent ? (rooms.data || []) : (rooms.data?.chats || rooms.chats || []);
-    let roomId = chatList.find((c: any) => (c.title || c.name || "").toLowerCase() === roomName.toLowerCase())?.id;
-
-    if (!roomId) {
-      // Create a new room
-      const createUrl = isAgent ? `${BAND_API}/agent/chats` : `${BAND_API}/me/chats`;
-      const body = isAgent
-        ? { chat: { title: roomName } }
-        : { name: roomName, description: `Dental scribe session for patient ${patientId}` };
-
-      const createRes = await fetch(createUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": bandApiKey,
-        },
-        body: JSON.stringify(body),
-      });
-      const created = await createRes.json();
-      roomId = created.data?.id || created.id;
-    }
-
-    // Ensure the agent is added as a participant to the room
-    if (roomId && agentId) {
-      try {
-        const addParticipantUrl = isAgent
-          ? `${BAND_API}/agent/chats/${roomId}/participants`
-          : `${BAND_API}/me/chats/${roomId}/participants`;
-        await fetch(addParticipantUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": bandApiKey,
-          },
-          body: JSON.stringify({
-            participant: { participant_id: agentId },
-            participant_id: agentId
-          }),
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    const results = json.results || [];
+    const drugs: any[] = [];
+    for (const r of results.slice(0, 3)) {
+      for (const p of (r.products || []).slice(0, 2)) {
+        drugs.push({
+          searched_for: drugName,
+          brand_name: p.brand_name,
+          active_ingredients: p.active_ingredients
+            ?.map((a: any) => `${a.name} ${a.strength || ""}`.trim())
+            .join(", "),
+          dosage_form: p.dosage_form,
+          route: p.route,
+          marketing_status: p.marketing_status,
+          sponsor: r.sponsor_name,
         });
-      } catch (addErr) {
-        console.warn("Failed to add agent participant in logToBand:", addErr);
       }
     }
+    return drugs;
+  } catch {
+    return [];
+  }
+}
 
-    // Send the result as a message @mention-ing the next agent
+/**
+ * Log an agent execution to Band.ai.
+ * Directly posts a message to the specified room.
+ */
+async function logToBand(
+  roomId: string,
+  bandApiKey: string,
+  patientId: string,
+  contentPrefix: string,
+  output: any,
+  nextAgentHandle?: string,
+  nextAgentId?: string,
+) {
+  if (!bandApiKey || !roomId) return;
+  const isAgent = bandApiKey.startsWith("band_a_");
+  try {
     const msgUrl = isAgent ? `${BAND_API}/agent/chats/${roomId}/messages` : `${BAND_API}/me/chats/${roomId}/messages`;
-    const content = `@${agentHandle} Results for patient ${patientId}:\n\nInput:\n${JSON.stringify(input, null, 2)}\n\nOutput:\n${JSON.stringify(output, null, 2)}`;
+    
+    let content = "";
+    if (nextAgentHandle) {
+      content = `@${nextAgentHandle} Here is the ${contentPrefix} data:\n\n${JSON.stringify(output, null, 2)}`;
+    } else {
+      content = `Workflow completed. Final ${contentPrefix} data:\n\n${JSON.stringify(output, null, 2)}`;
+    }
+
     const body = isAgent
       ? {
           message: {
             content,
-            mentions: agentId ? [{ id: agentId }] : []
+            mentions: nextAgentId ? [{ id: nextAgentId }] : []
           }
         }
       : { content };
@@ -513,6 +517,10 @@ export async function runClinicalWorkflow(
     pharmacologist: uuids.pharmacologist || "279ce17c-8983-4ca2-9f6b-2935d252135d"
   };
 
+  const scribeHandle = handles?.scribe || "ScribeAgent";
+  const plannerHandle = handles?.planner || "PlannerAgent";
+  const pharmacologistHandle = handles?.pharmacologist || "PharmacologistAgent";
+
   // Try to create/find the chat room on Band.ai first
   if (bandKey) {
     if (onStep) onStep("Connecting to Band.ai chat room...", 10);
@@ -586,101 +594,8 @@ export async function runClinicalWorkflow(
     }
   }
 
-  // Define default handles if not specified
-  const scribeHandle = handles?.scribe || "ScribeAgent";
-  const plannerHandle = handles?.planner || "PlannerAgent";
-  const pharmacologistHandle = handles?.pharmacologist || "PharmacologistAgent";
-
-  // If Band room is successfully found, execute remote Band mode
-  if (bandKey && roomId) {
-    try {
-      const startTime = Date.now() - 5000; // 5s buffer
-
-      // 1. Scribe Agent via Band.ai - Trigger by sending initial message
-      if (onStep) onStep("ScribeAgent: Sending dictation to Band.ai...", 15);
-      
-      const plannerApiKey = cleanKey(keys.bandPlanner || bandKey);
-      const postUrl = plannerApiKey.startsWith("band_a_")
-        ? `${BAND_API}/agent/chats/${roomId}/messages`
-        : `${BAND_API}/me/chats/${roomId}/messages`;
-      
-      const body = plannerApiKey.startsWith("band_a_")
-        ? {
-            message: {
-              content: `@${scribeHandle} process this clinical input:\n${transcript}`,
-              mentions: resolvedUuids.scribe ? [{ id: resolvedUuids.scribe }] : []
-            }
-          }
-        : { content: `@${scribeHandle} process this clinical input:\n${transcript}` };
-
-      const postRes = await fetch(postUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": plannerApiKey,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!postRes.ok) {
-        const errorText = await postRes.text();
-        throw new Error(`Failed to post initial message: ${errorText}`);
-      }
-
-      // 2. Poll for ScribeAgent's response (diagnostics)
-      const scribeOutputRaw = await waitForAgentResponse(
-        roomId,
-        scribeHandle,
-        bandKey,
-        startTime,
-        onStep,
-        20
-      );
-      const diagnostics: DiagnosticsData = cleanAndParseJSON(scribeOutputRaw);
-
-      // 3. Poll for PlannerAgent's response (treatment plan)
-      // Since ScribeAgent mentioned PlannerAgent, we just wait for PlannerAgent's output.
-      if (onStep) onStep("PlannerAgent: Waiting for treatments recommendation on Band.ai...", 40);
-      const plannerOutputRaw = await waitForAgentResponse(
-        roomId,
-        plannerHandle,
-        bandKey,
-        startTime,
-        onStep,
-        45
-      );
-      const plannerResult = cleanAndParseJSON(plannerOutputRaw);
-
-      // 4. Poll for PharmacologistAgent's response (prescriptions)
-      // Since PlannerAgent mentioned PharmacologistAgent, we just wait for PharmacologistAgent's output.
-      if (onStep) onStep("PharmacologistAgent: Waiting for prescriptions recommendation on Band.ai...", 60);
-      const pharmaOutputRaw = await waitForAgentResponse(
-        roomId,
-        pharmacologistHandle,
-        bandKey,
-        startTime,
-        onStep,
-        65
-      );
-      const pharmaResult = cleanAndParseJSON(pharmaOutputRaw);
-
-      return {
-        diagnostics,
-        investigations: plannerResult.investigations || [],
-        treatments: plannerResult.treatments || [],
-        prescriptions: pharmaResult.prescriptions || [],
-        teeth_marks: plannerResult.teeth_marks || [],
-      };
-    } catch (bandError: any) {
-      console.warn("Band.ai remote workflow failed or timed out. Falling back to direct mode...", bandError);
-      if (onStep) onStep(`Band.ai error: ${bandError.message || bandError}. Falling back to Direct...`, 12);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    }
-  }
-
-  // ---- DIRECT FEATHERLESS MODE (FALLBACK) ----
   // 1. Scribe Agent
-  if (onStep) onStep("ScribeAgent: Synthesizing diagnostics using Llama 3 8B...", 20);
+  if (onStep) onStep("ScribeAgent: Parsing transcript into diagnostics...", 20);
   const scribeOutputRaw = await callFeatherlessQueued(
     SCRIBE_PROMPT,
     transcript,
@@ -689,19 +604,22 @@ export async function runClinicalWorkflow(
   );
   const diagnostics: DiagnosticsData = cleanAndParseJSON(scribeOutputRaw);
 
-  if (onStep) onStep("ScribeAgent: Logging telemetry to Band.ai...", 30);
-  await logToBand(
-    "ScribeAgent",
-    scribeHandle,
-    resolvedUuids.scribe,
-    bandKey || "",
-    patientId || "unknown",
-    { transcript },
-    diagnostics,
-  );
+  if (roomId) {
+    if (onStep) onStep("ScribeAgent: Sending diagnostics to Band.ai...", 35);
+    const scribeApiKey = cleanKey(keys.bandScribe || bandKey);
+    await logToBand(
+      roomId,
+      scribeApiKey,
+      patientId || "unknown",
+      "Diagnostics",
+      diagnostics,
+      plannerHandle,
+      resolvedUuids.planner
+    );
+  }
 
   // 2. Planner Agent
-  if (onStep) onStep("PlannerAgent: Drafting treatment plan options using Qwen 2.5 7B...", 45);
+  if (onStep) onStep("PlannerAgent: Formulating treatment plans...", 50);
   const plannerOutputRaw = await callFeatherlessQueued(
     PLANNER_PROMPT,
     JSON.stringify(diagnostics),
@@ -710,38 +628,65 @@ export async function runClinicalWorkflow(
   );
   const plannerResult = cleanAndParseJSON(plannerOutputRaw);
 
-  if (onStep) onStep("PlannerAgent: Logging telemetry to Band.ai...", 55);
-  await logToBand(
-    "PlannerAgent",
-    plannerHandle,
-    resolvedUuids.planner,
-    bandKey || "",
-    patientId || "unknown",
-    diagnostics,
-    plannerResult,
-  );
+  if (roomId) {
+    if (onStep) onStep("PlannerAgent: Sending treatment plans to Band.ai...", 65);
+    const plannerApiKey = cleanKey(keys.bandPlanner || bandKey);
+    await logToBand(
+      roomId,
+      plannerApiKey,
+      patientId || "unknown",
+      "Treatment Plan",
+      plannerResult,
+      pharmacologistHandle,
+      resolvedUuids.pharmacologist
+    );
+  }
 
   // 3. Pharmacologist Agent
-  if (onStep) onStep("PharmacologistAgent: Safety-checking prescriptions using Qwen 2.5 7B...", 60);
+  if (onStep) onStep("PharmacologistAgent: Safety-checking prescriptions...", 75);
   const pharmaInput = { diagnostics, treatments: plannerResult.treatments };
-  const pharmaOutputRaw = await callFeatherlessQueued(
+  const drugListRaw = await callFeatherlessQueued(
     PHARMACOLOGIST_PROMPT,
     JSON.stringify(pharmaInput),
     featherlessKey,
     PHARMACOLOGIST_MODEL,
   );
+  const drugList = cleanAndParseJSON(drugListRaw);
+
+  const drugsToLookup = drugList.recommended_drugs || [];
+  const fdaDataList: any[] = [];
+  for (const d of drugsToLookup) {
+    const results = await lookupDrugOnFDA(d);
+    if (results && results.length > 0) {
+      fdaDataList.push(results[0]);
+    }
+  }
+
+  if (onStep) onStep("PharmacologistAgent: Writing final prescriptions using FDA data...", 85);
+  const finalPharmaInput = {
+    diagnostics,
+    treatments: plannerResult.treatments,
+    fda_drug_data: fdaDataList
+  };
+  const pharmaOutputRaw = await callFeatherlessQueued(
+    PHARMA_FINAL_PROMPT,
+    JSON.stringify(finalPharmaInput),
+    featherlessKey,
+    PHARMACOLOGIST_MODEL,
+  );
   const pharmaResult = cleanAndParseJSON(pharmaOutputRaw);
 
-  if (onStep) onStep("PharmacologistAgent: Logging telemetry to Band.ai...", 68);
-  await logToBand(
-    "PharmacologistAgent",
-    pharmacologistHandle,
-    resolvedUuids.pharmacologist,
-    bandKey || "",
-    patientId || "unknown",
-    pharmaInput,
-    pharmaResult,
-  );
+  if (roomId) {
+    if (onStep) onStep("PharmacologistAgent: Sending prescriptions to Band.ai...", 95);
+    const pharmaApiKey = cleanKey(keys.bandPharma || bandKey);
+    await logToBand(
+      roomId,
+      pharmaApiKey,
+      patientId || "unknown",
+      "Prescriptions",
+      pharmaResult
+    );
+  }
 
   return {
     diagnostics,
