@@ -236,7 +236,10 @@ async function completeScribing() {
       transcript,
       {
         featherless: import.meta.env.VITE_FEATHERLESS_API_KEY || '',
-        band: import.meta.env.VITE_BAND_API_KEY || ''
+        band: import.meta.env.VITE_BAND_API_KEY || '',
+        bandScribe: import.meta.env.VITE_BAND_SCRIBE_KEY || import.meta.env.VITE_SCRIBE_KEY || '',
+        bandPlanner: import.meta.env.VITE_BAND_PLANNER_KEY || import.meta.env.VITE_PLANNER_KEY || '',
+        bandPharma: import.meta.env.VITE_BAND_PHARMACOLOGIST_KEY || import.meta.env.VITE_PHARMA_KEY || ''
       },
       {
         scribe: import.meta.env.VITE_SCRIBE_UUID || '',

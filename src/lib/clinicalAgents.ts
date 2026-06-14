@@ -320,6 +320,9 @@ async function logToBand(
 export interface WorkflowKeys {
   featherless: string;
   band?: string;
+  bandScribe?: string;
+  bandPlanner?: string;
+  bandPharma?: string;
 }
 
 export interface AgentUuids {
@@ -500,7 +503,7 @@ export async function runClinicalWorkflow(
 ): Promise<ClinicalWorkflowResult> {
   let roomId = "";
 
-  const bandKey = cleanKey(keys.band);
+  const bandKey = cleanKey(keys.bandScribe || keys.band);
   const featherlessKey = cleanKey(keys.featherless);
   const isAgent = bandKey.startsWith("band_a_");
 
@@ -597,11 +600,12 @@ export async function runClinicalWorkflow(
       // 1. Scribe Agent via Band.ai - Trigger by sending initial message
       if (onStep) onStep("ScribeAgent: Sending dictation to Band.ai...", 15);
       
-      const postUrl = isAgent
+      const plannerApiKey = cleanKey(keys.bandPlanner || bandKey);
+      const postUrl = plannerApiKey.startsWith("band_a_")
         ? `${BAND_API}/agent/chats/${roomId}/messages`
         : `${BAND_API}/me/chats/${roomId}/messages`;
       
-      const body = isAgent
+      const body = plannerApiKey.startsWith("band_a_")
         ? {
             message: {
               content: `@${scribeHandle} process this clinical input:\n${transcript}`,
@@ -614,7 +618,7 @@ export async function runClinicalWorkflow(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-Key": bandKey,
+          "X-API-Key": plannerApiKey,
         },
         body: JSON.stringify(body),
       });
