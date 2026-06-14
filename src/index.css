@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn-vue CSS variables */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --border: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* frappe-ui Calendar component styles */
+.calendar-column { position: relative; }
+.calendar-column ::before { content: attr(data-time-attr); position: absolute; left: -45px; top: -9px; font-size: 12px; font-weight: 400; }
+.event { background-color: var(--bg); }
+.event .event-title { color: var(--text); }
+.event .event-subtitle { color: var(--subtext); }
+.event .event-border { background-color: var(--border); }
+.event.active { background-color: var(--bg-active); }
+.event.active .event-title { color: var(--text-active, #fff); }
+.event.active .event-subtitle { color: var(--subtext-active); }
+.event.active .event-border { background-color: var(--border-active); }
+.event:not(.active):hover { background-color: var(--bg-hover); }
+.event:not(.active) .past, .event.past:not(.active) { opacity: 0.5; }

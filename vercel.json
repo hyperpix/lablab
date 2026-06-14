@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/band/:path*",
+      "destination": "https://app.band.ai/api/v1/:path*"
+    }
+  ]
+}
