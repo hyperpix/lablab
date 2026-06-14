@@ -59,6 +59,7 @@ export default {
 
 // https://vite.dev/config/
 export default defineConfig({
+  envPrefix: ['VITE_', 'BAND_'],
   plugins: [
     nodePolyfills({ include: ['events', 'buffer', 'process', 'stream', 'util', 'path', 'crypto'] }),
     vue(),

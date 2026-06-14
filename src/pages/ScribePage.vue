@@ -31,9 +31,9 @@ const envVars = computed(() => {
   return {
     featherlessKey: import.meta.env.VITE_FEATHERLESS_API_KEY || '',
     bandApiKey: import.meta.env.VITE_BAND_API_KEY || '',
-    bandScribeKey: import.meta.env.VITE_BAND_SCRIBE_KEY || import.meta.env.VITE_SCRIBE_KEY || '',
-    bandPlannerKey: import.meta.env.VITE_BAND_PLANNER_KEY || import.meta.env.VITE_PLANNER_KEY || '',
-    bandPharmaKey: import.meta.env.VITE_BAND_PHARMACOLOGIST_KEY || import.meta.env.VITE_PHARMA_KEY || '',
+    bandScribeKey: import.meta.env.VITE_BAND_SCRIBE_KEY || import.meta.env.VITE_SCRIBE_KEY || import.meta.env.BAND_SCRIBE_KEY || '',
+    bandPlannerKey: import.meta.env.VITE_BAND_PLANNER_KEY || import.meta.env.VITE_PLANNER_KEY || import.meta.env.BAND_PLANNER_KEY || '',
+    bandPharmaKey: import.meta.env.VITE_BAND_PHARMACOLOGIST_KEY || import.meta.env.VITE_PHARMA_KEY || import.meta.env.BAND_PHARMA_KEY || '',
     scribeUuid: import.meta.env.VITE_SCRIBE_UUID || '',
     plannerUuid: import.meta.env.VITE_PLANNER_UUID || '',
     pharmaUuid: import.meta.env.VITE_PHARMACOLOGIST_UUID || ''
@@ -259,9 +259,9 @@ async function completeScribing() {
       {
         featherless: import.meta.env.VITE_FEATHERLESS_API_KEY || '',
         band: import.meta.env.VITE_BAND_API_KEY || '',
-        bandScribe: import.meta.env.VITE_BAND_SCRIBE_KEY || import.meta.env.VITE_SCRIBE_KEY || '',
-        bandPlanner: import.meta.env.VITE_BAND_PLANNER_KEY || import.meta.env.VITE_PLANNER_KEY || '',
-        bandPharma: import.meta.env.VITE_BAND_PHARMACOLOGIST_KEY || import.meta.env.VITE_PHARMA_KEY || ''
+        bandScribe: import.meta.env.VITE_BAND_SCRIBE_KEY || import.meta.env.VITE_SCRIBE_KEY || import.meta.env.BAND_SCRIBE_KEY || '',
+        bandPlanner: import.meta.env.VITE_BAND_PLANNER_KEY || import.meta.env.VITE_PLANNER_KEY || import.meta.env.BAND_PLANNER_KEY || '',
+        bandPharma: import.meta.env.VITE_BAND_PHARMACOLOGIST_KEY || import.meta.env.VITE_PHARMA_KEY || import.meta.env.BAND_PHARMA_KEY || ''
       },
       {
         scribe: import.meta.env.VITE_SCRIBE_UUID || '',
