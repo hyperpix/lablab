@@ -18,27 +18,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 
-const showDiagnostics = ref(false)
 
-function maskKey(key?: string) {
-  if (!key) return 'undefined'
-  const clean = key.replace(/^['"]|['"]$/g, "").trim()
-  if (clean.length <= 10) return '***'
-  return `${clean.substring(0, 8)}...${clean.substring(clean.length - 6)} (length: ${clean.length})`
-}
-
-const envVars = computed(() => {
-  return {
-    featherlessKey: import.meta.env.VITE_FEATHERLESS_API_KEY || '',
-    bandApiKey: import.meta.env.VITE_BAND_API_KEY || '',
-    bandScribeKey: import.meta.env.VITE_BAND_SCRIBE_KEY || import.meta.env.VITE_SCRIBE_KEY || import.meta.env.BAND_SCRIBE_KEY || '',
-    bandPlannerKey: import.meta.env.VITE_BAND_PLANNER_KEY || import.meta.env.VITE_PLANNER_KEY || import.meta.env.BAND_PLANNER_KEY || '',
-    bandPharmaKey: import.meta.env.VITE_BAND_PHARMACOLOGIST_KEY || import.meta.env.VITE_PHARMA_KEY || import.meta.env.BAND_PHARMA_KEY || '',
-    scribeUuid: import.meta.env.VITE_SCRIBE_UUID || '',
-    plannerUuid: import.meta.env.VITE_PLANNER_UUID || '',
-    pharmaUuid: import.meta.env.VITE_PHARMACOLOGIST_UUID || ''
-  }
-})
 
 const patientId = computed(() => (route.query.patient_id || route.query.patientId) as string)
 
@@ -464,23 +444,7 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <!-- Diagnostics -->
-    <div class="mt-8 border border-gray-200 rounded-lg p-4 max-w-lg w-full bg-gray-50 text-left">
-      <button @click="showDiagnostics = !showDiagnostics" class="flex justify-between w-full text-sm font-semibold text-gray-700 focus:outline-none">
-        <span>🔧 Band.ai Diagnostics</span>
-        <span>{{ showDiagnostics ? '▲' : '▼' }}</span>
-      </button>
-      <div v-if="showDiagnostics" class="mt-4 flex flex-col gap-2 text-xs font-mono text-gray-600">
-        <div><strong>VITE_FEATHERLESS_API_KEY:</strong> {{ maskKey(envVars.featherlessKey) }}</div>
-        <div><strong>VITE_BAND_API_KEY (deprecated):</strong> {{ maskKey(envVars.bandApiKey) }}</div>
-        <div><strong>VITE_BAND_SCRIBE_KEY:</strong> {{ maskKey(envVars.bandScribeKey) }}</div>
-        <div><strong>VITE_BAND_PLANNER_KEY:</strong> {{ maskKey(envVars.bandPlannerKey) }}</div>
-        <div><strong>VITE_BAND_PHARMACOLOGIST_KEY:</strong> {{ maskKey(envVars.bandPharmaKey) }}</div>
-        <div><strong>VITE_SCRIBE_UUID:</strong> {{ envVars.scribeUuid || 'undefined (using fallback)' }}</div>
-        <div><strong>VITE_PLANNER_UUID:</strong> {{ envVars.plannerUuid || 'undefined (using fallback)' }}</div>
-        <div><strong>VITE_PHARMACOLOGIST_UUID:</strong> {{ envVars.pharmaUuid || 'undefined (using fallback)' }}</div>
-      </div>
-    </div>
+
   </div>
 </template>
 
